@@ -1,24 +1,25 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <netinet/ip_icmp.h>
-#include <errno.h>
-#include <string.h>
 
-extern int errno;
+#define GET_RS_FAIL_CREATE_SOCK -1
+#define GET_RS_FAIL_SET_TTL -2
+#define GET_RS_FAIL_SET_TIMOUT -3
 
-int get_rs(int ttl, int rcv_timeout_sec) {
+// get_icmp_rs opens a ip-icmp socket.
+int get_icmp_rs(int ttl, int rcv_timeout_sec) {
   struct timeval tv;
 
   int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
   if(sockfd<0) {
-    return (-1);
+    return (GET_RS_FAIL_CREATE_SOCK);
   }
   // set IP ttl
   if (setsockopt(
         sockfd, IPPROTO_IP,
         IP_TTL, &ttl, sizeof(ttl)
       ) != 0) {
-        return (-2);
+        return (GET_RS_FAIL_SET_TTL);
   }
 
   tv.tv_sec = rcv_timeout_sec;
@@ -28,23 +29,7 @@ int get_rs(int ttl, int rcv_timeout_sec) {
         sockfd, SOL_SOCKET,
         SO_RCVTIMEO, (const char*)&tv, sizeof tv
       ) != 0) {
-    return (-3);
+    return (GET_RS_FAIL_SET_TIMOUT);
   }
   return sockfd;
 }
-
-char* get_err_dscr() {
-  return strerror(errno);
-}
-
-int send_rs() {
-  return 0;
-}
-
-int resv_rs() {
-  return 0;
-}
-
-int close_rs(int sock) {
-  return close(sock);
-} 
