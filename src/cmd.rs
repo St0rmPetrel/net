@@ -11,9 +11,9 @@ pub struct Ping {
 
 impl Ping {
     pub fn exec(self) -> Result<()> {
-        let ping = ping::Ping::new_default(&self.host)?;
+        let mut ping = ping::Ping::new_default(&self.host)?;
 
-        let _dur = ping.echo(0);
+        let _dur = ping.echo().unwrap();
 
         Ok(())
     }

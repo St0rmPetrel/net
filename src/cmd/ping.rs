@@ -1,4 +1,4 @@
-use crate::net::icmp::Packet;
+use crate::net::icmp::{self, Packet};
 use crate::net::rawsock::RawSocket;
 
 use std::net::SocketAddr;
@@ -13,9 +13,12 @@ pub struct Ping {
     hops: u8,
     timeout: Duration,
     id: u32,
+    seq: u16,
     host: SocketAddr,
     wait: Duration,
     size: usize,
+
+    buff: Vec<u8>,
 }
 
 impl Ping {
@@ -31,6 +34,7 @@ impl Ping {
         let hops = 56;
         let timeout = Duration::from_secs(1);
         let sock = RawSocket::new_icmp(hops, timeout.as_secs() as u32)?;
+        let size = 64;
 
         Ok(Ping {
             sock,
@@ -39,7 +43,9 @@ impl Ping {
             id: process::id(),
             host: addr,
             wait: Duration::from_secs(2),
-            size: 64,
+            seq: 0,
+            size,
+            buff: vec![0; SIZE_OF_IP_V4_PACK + icmp::HDR_BYTE_SIZE + size],
         })
     }
 }
@@ -47,17 +53,56 @@ impl Ping {
 const SIZE_OF_IP_V4_PACK: usize = 20;
 
 impl Ping {
-    pub fn echo(&self, seq: u16) -> Result<Duration> {
-        let icmp_pck = Packet::<2>::new_echo_req(self.id as u16, seq, &[0xFFu8; 2]);
+    pub fn echo(&mut self) -> Result<Duration> {
+        let icmp_pck = Packet::new_echo_req(self.id as u16, self.seq, vec![0xFFu8; self.size]);
 
-        self.sock.sendto(icmp_pck.raw(), self.host).unwrap();
+        let send = self.sock.sendto(&icmp_pck.raw(), self.host)?;
+        if send != icmp_pck.get_byte_size() {
+            return Err(anyhow!(
+                "send bytes size = {} must be equal size of a icmp packet = {}",
+                send,
+                icmp_pck.get_byte_size(),
+            ));
+        }
 
-        let mut buff = [0u8; SIZE_OF_IP_V4_PACK + 8 + 2];
-        self.sock.recvfrom(&mut buff).unwrap();
+        let (recv, from) = self.sock.recvfrom(&mut self.buff)?;
+        if recv - SIZE_OF_IP_V4_PACK != icmp_pck.get_byte_size() {
+            return Err(anyhow!(
+                "recv bytes size = {} must be equal size of a icmp packet = {}",
+                recv,
+                icmp_pck.get_byte_size(),
+            ));
+        }
+        let from = from.unwrap();
+        if from.ip() != self.host.ip() {
+            return Err(anyhow!(
+                "destenation host {} of send packet and souce host {} of recive packet shoud be equal",
+                from.ip(),
+                self.host.ip(),
+            ));
+        }
 
-        println!("buff = {:X?}", &buff[SIZE_OF_IP_V4_PACK..]);
-        let rcv_icmp_pkt = Packet::<2>::from_raw(&buff[SIZE_OF_IP_V4_PACK..]).unwrap();
+        let rcv_icmp_pkt = Packet::from_raw(&self.buff[SIZE_OF_IP_V4_PACK..]).unwrap();
         println!("pck  = {:X?}", rcv_icmp_pkt.raw());
+        self.check_echo_reply(&rcv_icmp_pkt)?;
+
+        println!("pck.data  = {:X?}", rcv_icmp_pkt.get_data());
+
+        self.seq += 1;
         Ok(Duration::from_millis(5_000))
+    }
+
+    fn check_echo_reply(&self, pck: &Packet) -> Result<()> {
+        if !pck.is_echo_reply() {
+            return Err(anyhow!("expected echo reply icmp packet"));
+        }
+
+        if pck.get_echo_id()? != (self.id as u16) {
+            return Err(anyhow!("packet id doesn't match"));
+        }
+        if pck.get_echo_seq()? != self.seq {
+            return Err(anyhow!("packet sequence doesn't match"));
+        }
+        Ok(())
     }
 }
