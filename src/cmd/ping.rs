@@ -1,17 +1,17 @@
 use crate::net::icmp::{self, Packet};
 use crate::net::rawsock::RawSocket;
 
+use std::fmt;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
 use std::process;
 use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::{anyhow, Result};
 
 pub struct Ping {
     sock: RawSocket,
-    hops: u8,
-    timeout: Duration,
     id: u32,
     seq: u16,
     host: SocketAddr,
@@ -19,6 +19,20 @@ pub struct Ping {
     size: usize,
 
     buff: Vec<u8>,
+    round_trip: Duration,
+}
+
+impl fmt::Display for Ping {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} bytes from {}: icmp_seq={} time={} ms",
+            self.size + icmp::HDR_BYTE_SIZE,
+            self.host.ip(),
+            self.seq,
+            self.round_trip.as_millis(),
+        )
+    }
 }
 
 impl Ping {
@@ -38,14 +52,13 @@ impl Ping {
 
         Ok(Ping {
             sock,
-            hops,
-            timeout,
             id: process::id(),
             host: addr,
             wait: Duration::from_secs(2),
             seq: 0,
             size,
             buff: vec![0; SIZE_OF_IP_V4_PACK + icmp::HDR_BYTE_SIZE + size],
+            round_trip: Duration::from_millis(0),
         })
     }
 }
@@ -54,6 +67,7 @@ const SIZE_OF_IP_V4_PACK: usize = 20;
 
 impl Ping {
     pub fn echo(&mut self) -> Result<Duration> {
+        let now = Instant::now();
         let icmp_pck = Packet::new_echo_req(self.id as u16, self.seq, vec![0xFFu8; self.size]);
 
         let send = self.sock.sendto(&icmp_pck.raw(), self.host)?;
@@ -83,13 +97,13 @@ impl Ping {
         }
 
         let rcv_icmp_pkt = Packet::from_raw(&self.buff[SIZE_OF_IP_V4_PACK..]).unwrap();
-        println!("pck  = {:X?}", rcv_icmp_pkt.raw());
         self.check_echo_reply(&rcv_icmp_pkt)?;
+        self.round_trip = now.elapsed();
 
-        println!("pck.data  = {:X?}", rcv_icmp_pkt.get_data());
+        println!("{}", self);
 
         self.seq += 1;
-        Ok(Duration::from_millis(5_000))
+        Ok(self.round_trip)
     }
 
     fn check_echo_reply(&self, pck: &Packet) -> Result<()> {
