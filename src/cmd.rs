@@ -13,8 +13,6 @@ impl Ping {
     pub fn exec(self) -> Result<()> {
         let mut ping = ping::Ping::new_default(&self.host)?;
 
-        let _dur = ping.echo().unwrap();
-
-        Ok(())
+        ping.ping()
     }
 }
