@@ -61,10 +61,6 @@ impl Packet {
     pub fn is_echo_reply(&self) -> bool {
         self.p_type == ECHO_REPLY_TYPE && self.code == ECHO_REPLY_CODE
     }
-
-    pub fn get_data<'a>(&'a self) -> &'a [u8] {
-        &self.data
-    }
 }
 
 impl Packet {
