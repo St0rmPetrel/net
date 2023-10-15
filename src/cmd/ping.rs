@@ -189,7 +189,7 @@ impl Ping {
             ));
         }
 
-        let (recv, from) = self.sock.recvfrom(&mut self.buff)?;
+        let (recv, from) = self.recv()?;
         if recv - SIZE_OF_IP_V4_PACK != icmp_pck.get_byte_size() {
             return Err(anyhow!(
                 "recv bytes size = {} must be equal size of a icmp packet = {}",
@@ -197,7 +197,6 @@ impl Ping {
                 icmp_pck.get_byte_size(),
             ));
         }
-        let from = from.unwrap();
         if from.ip() != self.host.ip() {
             return Err(anyhow!(
                 "destenation host {} of send packet and souce host {} of recive packet shoud be equal",
@@ -206,14 +205,26 @@ impl Ping {
             ));
         }
 
-        let rcv_icmp_pkt = Packet::from_raw(&self.buff[SIZE_OF_IP_V4_PACK..]).unwrap();
-        self.check_echo_reply(&rcv_icmp_pkt)?;
         self.round_trip = now.elapsed();
 
         println!("{}", self);
 
         self.seq += 1;
         Ok(self.round_trip)
+    }
+
+    fn recv(&mut self) -> Result<(usize, SocketAddr)> {
+        loop {
+            let (recv, from) = self.sock.recvfrom(&mut self.buff)?;
+            let pack = match Packet::from_raw(&self.buff[SIZE_OF_IP_V4_PACK..]) {
+                Ok(pack) => pack,
+                Err(_) => continue,
+            };
+            match self.check_echo_reply(&pack) {
+                Ok(_) => return Ok((recv, from.unwrap())),
+                Err(_) => continue,
+            };
+        }
     }
 
     fn check_echo_reply(&self, pck: &Packet) -> Result<()> {

@@ -87,7 +87,7 @@ impl Packet {
                 },
                 data: raw_pck[HDR_BYTE_SIZE..].to_vec(),
             },
-            _ => unimplemented!(),
+            _ => return Err(anyhow!("not implemented")),
         };
 
         pck.checksum();
